@@ -130,6 +130,24 @@
     .metric-value { font-size: 18px; }
     .header-sub { display: none; }
   }
+
+  /* CSV Import */
+  .import-overlay { position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center; }
+  .import-modal { background:var(--surface);border-radius:var(--radius-lg);padding:1.5rem;width:90%;max-width:640px;max-height:85vh;overflow-y:auto; }
+  .import-modal h2 { font-size:15px;font-weight:600;margin-bottom:1rem; }
+  .drop-zone { border:2px dashed var(--border-strong);border-radius:var(--radius);padding:2rem;text-align:center;cursor:pointer;transition:all 0.15s;margin-bottom:1rem; }
+  .drop-zone:hover, .drop-zone.dragover { border-color:var(--blue);background:var(--blue-bg); }
+  .drop-zone-text { font-size:13px;color:var(--text-2); }
+  .mapping-row { display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px; }
+  .mapping-row:last-child { border-bottom:none; }
+  .merchant-name { flex:1;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .merchant-amount { font-family:'DM Mono',monospace;font-weight:500;min-width:60px;text-align:right;color:var(--red); }
+  .mapping-select { font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);font-family:'DM Sans',sans-serif;flex:1.5; }
+  .mapping-subselect { font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);font-family:'DM Sans',sans-serif;flex:1.5; }
+  .import-summary { background:var(--surface-2);border-radius:var(--radius);padding:10px 14px;margin-bottom:1rem;font-size:13px; }
+  .skip-badge { font-size:11px;padding:2px 7px;border-radius:20px;background:var(--surface-2);color:var(--text-3);cursor:pointer; }
+  .skip-badge.skipped { background:var(--red-bg);color:var(--red-text); }
+
 </style>
 </head>
 <body>
@@ -142,6 +160,7 @@
     <span class="header-title">Family Finance</span>
     <span class="header-sub" style="margin-left:4px;">Petkevicius household</span>
     <span id="sync-status" style="font-size:11px;color:var(--text-3);margin-left:4px;"></span>
+    <button class="btn" style="font-size:11px;padding:4px 12px;margin-left:8px;" onclick="openImport()">&#8593; Import CSV</button>
   </div>
   <div class="header-right">
     <div class="year-selector">
@@ -239,6 +258,41 @@
       </div>
     </div>
   </div>
+
+<!-- CSV Import Modal -->
+<div class="import-overlay" id="import-overlay" style="display:none;">
+  <div class="import-modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+      <h2>Import Revolut CSV</h2>
+      <button onclick="closeImport()" style="border:none;background:none;cursor:pointer;font-size:20px;color:var(--text-3);">&#215;</button>
+    </div>
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('csv-file-input').click()"
+      ondragover="event.preventDefault();this.classList.add('dragover')"
+      ondragleave="this.classList.remove('dragover')"
+      ondrop="handleDrop(event)">
+      <div class="drop-zone-text">Drop your Revolut CSV here or click to browse</div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:4px;">Exports from Revolut app - Excel/CSV format</div>
+    </div>
+    <input type="file" id="csv-file-input" accept=".csv" style="display:none;" onchange="handleFileSelect(event)">
+    <div id="import-content" style="display:none;">
+      <div class="import-summary" id="import-summary"></div>
+      <div style="font-size:12px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;">Review & map transactions</div>
+      <div style="display:flex;gap:8px;font-size:11px;color:var(--text-3);padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:4px;">
+        <span style="flex:1;">Merchant</span>
+        <span style="min-width:60px;text-align:right;">Amount</span>
+        <span style="flex:1.5;">Group</span>
+        <span style="flex:1.5;">Subitem</span>
+        <span style="width:20px;"></span>
+      </div>
+      <div id="mapping-rows"></div>
+      <div style="display:flex;gap:8px;margin-top:1rem;justify-content:flex-end;">
+        <button class="btn" onclick="closeImport()">Cancel</button>
+        <button class="btn primary" onclick="applyImport()">Apply to current month</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 </main>
 
 <script>
@@ -269,39 +323,16 @@ function makeExpenseData() {
     d[g.key] = {};
     g.items.forEach(item => { d[g.key][item] = 0; });
   });
-  d.paskolos['Buto kaina'] = 850;
-  d.paskolos['Buto palukanos'] = 120;
-  d.paskolos['Masina'] = 220;
-  d.komunaliniai['Elektra'] = 65;
-  d.komunaliniai['Vanduo'] = 20;
-  d.komunaliniai['UH'] = 30;
-  d.komunaliniai['Telia'] = 25;
-  d.pramogos['Maistas i namus'] = 180;
-  d.pramogos['Maistas out'] = 120;
-  d.pramogos['Kavute'] = 40;
-  d.pramogos['Spotify'] = 10;
-  d.pramogos['Netflix'] = 13;
-  d.pramogos['Youtube Premium'] = 8;
-  d.pramogos['Amazon Prime'] = 6;
-  d.pramogos['Sportas'] = 40;
-  d.kasdienybe['Lidlas'] = 90;
-  d.kasdienybe['Rimi/IKI/Barbora'] = 80;
-  d.kasdienybe['Maxima'] = 60;
-  d.kasdienybe['Drogas'] = 35;
-  d.sveikata['Vaistai'] = 20;
-  d.hadulis['Maistas'] = 45;
-  d.hadulis['Skaniukai'] = 15;
-  d.masina['Kuras'] = 80;
-  d.masina['Plovykla'] = 15;
+
   return d;
 }
 
 function makeMonthData() {
   return {
     income: [
-      { label: 'Sarunas alga', val: 3200 },
+      { label: 'Sarunas alga', val: 0 },
       { label: 'Sarunas papildomos', val: 0 },
-      { label: 'Zmonos alga', val: 2800 }
+      { label: 'Zmonos alga', val: 0 }
     ],
     expenses: makeExpenseData(),
     actuals: { luminor: 0, revolut: 0, gryni: 0 }
@@ -390,10 +421,7 @@ async function loadFromFirebase() {
       { name: 'Atostogos - HK', target: 3000, saved: 1800 }
     ];
     investments = fbInv || [
-      { name: 'ETF portfelis', value: 28400, change: 3.2 },
-      { name: 'Pensija', value: 15600, change: 1.8 },
-      { name: 'Crypto', value: 2200, change: -4.1 },
-      { name: 'Taupomoji saskaita', value: 9800, change: 0.4 }
+
     ];
     // Firebase stores arrays as objects with numeric keys - convert back
     if (!Array.isArray(goals)) goals = Object.values(goals);
@@ -735,6 +763,219 @@ function updateActual(key, val) {
   renderActuals();
 }
 
+// ---- CSV Import ----
+
+// Merchant -> [groupKey, subitem] mapping rules based on real Revolut data
+const MERCHANT_RULES = [
+  // Kasdienybe
+  [/lidl/i,                    ['kasdienybe', 'Lidlas']],
+  [/maxima/i,                  ['kasdienybe', 'Maxima']],
+  [/iki|rimi|barbora/i,        ['kasdienybe', 'Rimi/IKI/Barbora']],
+  [/drogas/i,                  ['kasdienybe', 'Drogas']],
+  [/pepco/i,                   ['kasdienybe', 'Pepco']],
+  [/vinted/i,                  ['kasdienybe', 'Vinted']],
+  [/senukai/i,                 ['butas', 'Daiktai']],
+  [/budruva/i,                 ['kasdienybe', 'Krautuvele']],
+  [/reserved|nike|zara|h&m/i,  ['kasdienybe', 'Rubai']],
+  [/inhair|kirpykla/i,         ['kasdienybe', 'Kirpykla']],
+  // Pramogos
+  [/netflix/i,                 ['pramogos', 'Netflix']],
+  [/spotify/i,                 ['pramogos', 'Spotify']],
+  [/youtube/i,                 ['pramogos', 'Youtube Premium']],
+  [/amazon prime/i,            ['pramogos', 'Amazon Prime']],
+  [/steam|xsolla|nba2k|easports|ea |gaming/i, ['pramogos', 'Zaidimai']],
+  [/kfc|mcdonalds|burger|subway|hesburger/i,  ['pramogos', 'Maistas out']],
+  [/el gato|kmynine|kaukazas|greent|greet|sirdal|caffeine|le tea|candy pop|creme/i, ['pramogos', 'Kavute']],
+  [/kinas|cinema|forum cinemas/i, ['pramogos', 'Kinas']],
+  [/puls nutrition|gymshark/i, ['pramogos', 'Mildelei']],
+  [/royalsmoke/i,              ['pramogos', 'Kita']],
+  // Sveikata
+  [/eurovaistine|vaistine|vaistai|pharmacy/i, ['sveikata', 'Vaistai']],
+  [/gydytojas|odontolog/i,  ['sveikata', 'Gydytojai']],
+  // Hadulis
+  [/klinika2 vet|vet1|dr.vet|pet24|tractive/i, ['hadulis', 'Veterinaras']],
+  // Masina
+  [/circle k|viada|neste|lukoil|kuras|petrol|fuel/i, ['masina', 'Kuras']],
+  [/bolt(?! food)/i,           ['masina', 'Kita']],
+  [/uber(?! eats)/i,           ['masina', 'Kita']],
+  // Keliones
+  [/trip\.com|booking|airbnb|easysbc|judu/i, ['keliones', 'Bilietai']],
+  // Komunaliniai
+  [/telia/i,                   ['komunaliniai', 'Telia']],
+  // Butas
+  [/ikea/i,                    ['butas', 'Daiktai']],
+];
+
+let learnedMappings = {};
+
+function loadLearnedMappings() {
+  try { const s = localStorage.getItem('ff-learned'); if (s) learnedMappings = JSON.parse(s); } catch(e) {}
+}
+function saveLearnedMappings() {
+  try { localStorage.setItem('ff-learned', JSON.stringify(learnedMappings)); } catch(e) {}
+}
+
+function guessMapping(description) {
+  // Check learned mappings first (exact match on lowercased description)
+  const key = description.toLowerCase().trim();
+  if (learnedMappings[key]) return learnedMappings[key];
+  // Fall back to regex rules
+  for (const [pattern, mapping] of MERCHANT_RULES) {
+    if (pattern.test(description)) return mapping;
+  }
+  return ['other', 'Kita'];
+}
+
+function learnMapping(description, grp, sub) {
+  const key = description.toLowerCase().trim();
+  learnedMappings[key] = [grp, sub];
+  saveLearnedMappings();
+}
+
+let parsedTransactions = [];
+
+function openImport() {
+  document.getElementById('import-overlay').style.display = 'flex';
+  document.getElementById('import-content').style.display = 'none';
+  document.getElementById('drop-zone').style.display = 'block';
+}
+
+function closeImport() {
+  document.getElementById('import-overlay').style.display = 'none';
+  parsedTransactions = [];
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) processCSV(file);
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) processCSV(file);
+}
+
+function processCSV(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const allLines = text.trim().split(/\r?\n/);
+
+    // Revolut CSVs sometimes have the filename as the first line - skip it
+    // Find the header line by looking for "Type" or "Description"
+    let headerIdx = 0;
+    for (let i = 0; i < Math.min(5, allLines.length); i++) {
+      if (allLines[i].includes('Description') && allLines[i].includes('Amount')) {
+        headerIdx = i;
+        break;
+      }
+    }
+    const lines = allLines.slice(headerIdx);
+
+    // Detect separator: semicolon or comma
+    const sep = lines[0].includes(';') ? ';' : ',';
+    const headers = lines[0].split(sep).map(h => h.trim().replace(/"/g,''));
+    const descIdx = headers.indexOf('Description');
+    const amtIdx = headers.indexOf('Amount');
+    const stateIdx = headers.indexOf('State');
+    const typeIdx = headers.indexOf('Type');
+
+    parsedTransactions = [];
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const cols = lines[i].split(sep);
+      const clean = cols.map(c => c.replace(/^"|"$/g,'').trim());
+      const desc = clean[descIdx] || '';
+      const amt = parseFloat((clean[amtIdx] || '0').replace(',','.')) || 0;
+      const state = clean[stateIdx] || '';
+      const type = clean[typeIdx] || '';
+      if (amt >= 0) continue;
+      if (state === 'REVERTED' || state === 'FAILED') continue;
+      if (type === 'Topup') continue;
+      const [grp, sub] = guessMapping(desc);
+      parsedTransactions.push({ desc, amt: Math.abs(amt), grp, sub, skip: false });
+    }
+
+    // Aggregate by desc+grp+sub for display
+    const grouped = {};
+    parsedTransactions.forEach((t, i) => {
+      const k = t.desc + '||' + t.grp + '||' + t.sub;
+      if (!grouped[k]) grouped[k] = { desc: t.desc, amt: 0, grp: t.grp, sub: t.sub, indices: [], skip: false };
+      grouped[k].amt += t.amt;
+      grouped[k].indices.push(i);
+    });
+    const rows = Object.values(grouped);
+
+    document.getElementById('import-summary').innerHTML =
+      `<strong>${parsedTransactions.length}</strong> transactions found &nbsp;·&nbsp; Total: <strong style="color:var(--red);">${fmt(parsedTransactions.reduce((s,t)=>s+t.amt,0))}</strong>`;
+
+    const groupOptions = EXPENSE_GROUPS.map(g => `<option value="${g.key}">${g.name}</option>`).join('');
+
+    document.getElementById('mapping-rows').innerHTML = rows.map((row, ri) => {
+      const subOptions = (EXPENSE_GROUPS.find(g => g.key === row.grp)?.items || [])
+        .map(it => `<option value="${it}" ${it === row.sub ? 'selected' : ''}>${it}</option>`).join('');
+      return `<div class="mapping-row" id="mrow-${ri}">
+        <span class="merchant-name" title="${row.desc}">${row.desc}</span>
+        <span class="merchant-amount">-${fmt(row.amt)}</span>
+        <select class="mapping-select" onchange="updateMappingGroup(${ri},this.value)">
+          ${EXPENSE_GROUPS.map(g => `<option value="${g.key}" ${g.key===row.grp?'selected':''}>${g.name}</option>`).join('')}
+        </select>
+        <select class="mapping-subselect" id="msub-${ri}" onchange="updateMappingSub(${ri},this.value)">
+          ${subOptions}
+        </select>
+        <span class="skip-badge" id="mskip-${ri}" onclick="toggleSkip(${ri})" title="Skip this row">&#10005;</span>
+      </div>`;
+    }).join('');
+
+    // Store rows for apply
+    window._importRows = rows;
+    document.getElementById('drop-zone').style.display = 'none';
+    document.getElementById('import-content').style.display = 'block';
+  };
+  reader.readAsText(file);
+}
+
+function updateMappingGroup(ri, grpKey) {
+  const g = EXPENSE_GROUPS.find(g => g.key === grpKey);
+  const subSel = document.getElementById('msub-' + ri);
+  subSel.innerHTML = (g?.items || []).map(it => `<option value="${it}">${it}</option>`).join('');
+  // Learn from user change
+  const row = window._importRows[ri];
+  if (row) learnMapping(row.desc, grpKey, g?.items[0] || 'Kita');
+}
+
+function updateMappingSub(ri, sub) {
+  const row = window._importRows[ri];
+  const grpSel = document.getElementById('mrow-' + ri)?.querySelector('.mapping-select');
+  if (row && grpSel) learnMapping(row.desc, grpSel.value, sub);
+}
+
+function toggleSkip(ri) {
+  const el = document.getElementById('mskip-' + ri);
+  const row = document.getElementById('mrow-' + ri);
+  window._importRows[ri].skip = !window._importRows[ri].skip;
+  el.classList.toggle('skipped', window._importRows[ri].skip);
+  row.style.opacity = window._importRows[ri].skip ? '0.4' : '1';
+}
+
+function applyImport() {
+  const rows = window._importRows || [];
+  const exp = getMonthData().expenses;
+  rows.forEach(row => {
+    if (row.skip) return;
+    const grpKey = document.getElementById('mrow-' + rows.indexOf(row))?.querySelector('.mapping-select')?.value || row.grp;
+    const sub = document.getElementById('msub-' + rows.indexOf(row))?.value || row.sub;
+    if (!exp[grpKey]) exp[grpKey] = {};
+    exp[grpKey][sub] = (parseFloat(exp[grpKey][sub]) || 0) + row.amt;
+  });
+  saveData();
+  closeImport();
+  render();
+}
+
+loadLearnedMappings();
 loadFromFirebase();
 </script>
 </body>
