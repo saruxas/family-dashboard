@@ -351,8 +351,33 @@ function fbSet(path, data) {
   return fetch(`${FB_URL}/${path}.json?auth=${FB_KEY}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+    body: JSON.stringify(sanitizeKeys(data))
   });
+}
+
+// Firebase forbids . # $ [ ] / in keys - replace with safe chars
+function sanitizeKeys(obj) {
+  if (typeof obj !== 'object' || obj === null) return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeKeys);
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const safe = k.replace(/[.#$[\]/]/g, '_');
+    out[safe] = sanitizeKeys(v);
+  }
+  return out;
+}
+
+// Reverse sanitization for reading back
+function desanitizeKeys(obj, reference) {
+  if (typeof obj !== 'object' || obj === null) return obj;
+  if (Array.isArray(obj)) return obj.map((v,i) => desanitizeKeys(v, reference?.[i]));
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    // Find original key from reference if available
+    const origKey = reference ? Object.keys(reference).find(rk => rk.replace(/[.#$[\]/]/g, '_') === k) || k : k;
+    out[origKey] = desanitizeKeys(v, reference?.[origKey]);
+  }
+  return out;
 }
 
 let monthData = {};
@@ -408,13 +433,14 @@ async function loadFromFirebase() {
       fbGet('goals'),
       fbGet('investments')
     ]);
-    monthData = fbMonths || {};
-    // Firebase keys use _ instead of - so convert back
-    const converted = {};
-    Object.entries(monthData).forEach(([k, v]) => {
-      converted[k.replace(/_/g, '-')] = v;
+    const rawMonths = fbMonths || {};
+    // Firebase keys use _ instead of - so convert back, and desanitize data keys
+    const ref = makeMonthData();
+    monthData = {};
+    Object.entries(rawMonths).forEach(([k, v]) => {
+      const monthKey = k.replace(/_([A-Z])/g, '-$1').replace(/^(\d{4})_/, '$1-');
+      monthData[monthKey] = desanitizeKeys(v, ref);
     });
-    monthData = converted;
     goals = fbGoals || [
       { name: 'Singapore perkraustymas', target: 20000, saved: 8500 },
       { name: 'Rezervinis fondas', target: 10000, saved: 7200 },
