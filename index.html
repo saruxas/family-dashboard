@@ -131,6 +131,21 @@
     .header-sub { display: none; }
   }
 
+  /* Subitem entries */
+  .sub-row { position: relative; }
+  .entries-panel { background: var(--surface-2); border-top: 1px solid var(--border); padding: 8px 12px 8px 28px; }
+  .entry-line { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 12px; }
+  .entry-line:last-child { margin-bottom: 0; }
+  .entry-amt { font-family: 'DM Mono', monospace; font-weight: 500; min-width: 60px; color: var(--red); }
+  .entry-note { flex: 1; color: var(--text-2); font-style: italic; }
+  .entry-del { border: none; background: none; cursor: pointer; color: var(--text-3); font-size: 14px; line-height: 1; padding: 0 2px; }
+  .entry-del:hover { color: var(--red); }
+  .entry-add-row { display: flex; gap: 5px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+  .add-entry-btn { font-size: 11px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--border-strong); background: transparent; color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+  .add-entry-btn:hover { background: var(--blue-bg); border-color: var(--blue); color: var(--blue); }
+  .sub-total-display { font-size: 13px; font-weight: 500; font-family: 'DM Mono', monospace; min-width: 88px; text-align: right; color: var(--text); }
+
+  /* CSV Import */
   /* CSV Import */
   .import-overlay { position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center; }
   .import-modal { background:var(--surface);border-radius:var(--radius-lg);padding:1.5rem;width:90%;max-width:640px;max-height:85vh;overflow-y:auto; }
@@ -321,10 +336,24 @@ function makeExpenseData() {
   const d = {};
   EXPENSE_GROUPS.forEach(g => {
     d[g.key] = {};
-    g.items.forEach(item => { d[g.key][item] = 0; });
+    g.items.forEach(item => { d[g.key][item] = { entries: [] }; });
   });
-
   return d;
+}
+
+function getSubTotal(groupKey, item) {
+  const exp = getExpenses();
+  const sub = exp[groupKey] && exp[groupKey][item];
+  if (!sub) return 0;
+  if (typeof sub === 'number') return sub;
+  return (sub.entries || []).reduce((s, e) => s + (parseFloat(e.amt) || 0), 0);
+}
+
+function getSubEntries(groupKey, item) {
+  const exp = getExpenses();
+  const sub = exp[groupKey] && exp[groupKey][item];
+  if (!sub || typeof sub === 'number') return [];
+  return sub.entries || [];
 }
 
 function makeMonthData() {
@@ -492,9 +521,9 @@ function getMonthData() {
 function getExpenses() { return getMonthData().expenses; }
 
 function groupTotal(key) {
-  const exp = getExpenses();
-  if (!exp[key]) return 0;
-  return Object.values(exp[key]).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+  const g = EXPENSE_GROUPS.find(g => g.key === key);
+  if (!g) return 0;
+  return g.items.reduce((s, item) => s + getSubTotal(key, item), 0);
 }
 
 function totalExpenses() {
@@ -536,35 +565,55 @@ function render() {
 }
 
 function renderExpenseGroups() {
-  const exp = getExpenses();
   document.getElementById('expense-groups').innerHTML = EXPENSE_GROUPS.map((g, gi) => {
     const total = groupTotal(g.key);
     const isOpen = openGroups.has(g.key);
     const color = GROUP_COLORS[gi % GROUP_COLORS.length];
     const subRows = g.items.map(item => {
-      const val = (exp[g.key] && exp[g.key][item]) ? exp[g.key][item] : 0;
-      return `<div class="sub-row">
-        <span class="sub-label">${item}</span>
-        <input class="num-input" type="number" value="${val}"
-          onchange="updateExpense('${g.key}','${item.replace(/'/g,"\\'")}',this.value)">
-      </div>`;
+      const itemTotal = getSubTotal(g.key, item);
+      const entries = getSubEntries(g.key, item);
+      const safeItem = item.replace(/'/g, "\\'");
+      const panelId = 'panel-' + g.key + '-' + item.replace(/[^a-z0-9]/gi, '_');
+      const entriesHtml = entries.map((e, ei) =>
+        '<div class="entry-line">' +
+        '<span class="entry-amt">-' + fmt(e.amt) + '</span>' +
+        '<span class="entry-note">' + (e.note || '') + '</span>' +
+        '<button class="entry-del" onclick="removeEntry(\'' + g.key + '\',\'' + safeItem + '\',' + ei + ')">&#215;</button>' +
+        '</div>'
+      ).join('');
+      return '<div class="sub-row" style="flex-direction:column;align-items:stretch;padding:0;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px 6px 28px;">' +
+          '<span class="sub-label">' + item + '</span>' +
+          '<div style="display:flex;align-items:center;gap:6px;">' +
+            '<span class="sub-total-display">' + (itemTotal > 0 ? fmt(itemTotal) : '&mdash;') + '</span>' +
+            '<button class="add-entry-btn" onclick="toggleEntryPanel(\'' + panelId + '\')" title="Add entry">+</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="entries-panel" id="' + panelId + '" style="display:none;">' +
+          '<div id="' + panelId + '-list">' + entriesHtml + '</div>' +
+          '<div class="entry-add-row">' +
+            '<input class="num-input" type="number" placeholder="\u20AC" id="' + panelId + '-amt" style="width:80px;" onkeydown="if(event.key===\'Enter\')addEntry(\'' + g.key + '\',\'' + safeItem + '\',\'' + panelId + '\')">' +
+            '<input class="text-input" placeholder="note (optional)" id="' + panelId + '-note" style="flex:1;font-size:12px;" onkeydown="if(event.key===\'Enter\')addEntry(\'' + g.key + '\',\'' + safeItem + '\',\'' + panelId + '\')">' +
+            '<button class="btn primary" style="font-size:11px;padding:4px 10px;" onclick="addEntry(\'' + g.key + '\',\'' + safeItem + '\',\'' + panelId + '\')">Add</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
     }).join('');
-    return `<div class="exp-group${isOpen ? ' open' : ''}" id="grp-${g.key}">
-      <div class="exp-group-header" onclick="toggleGroup('${g.key}')">
-        <div class="exp-group-left">
-          <span class="group-dot" style="background:${color};"></span>
-          <span class="group-name">${g.name}</span>
-        </div>
-        <div style="display:flex;align-items:center;">
-          <span class="group-total">${total > 0 ? fmt(total) : '\u2014'}</span>
-          <span class="group-chevron">&#9660;</span>
-        </div>
-      </div>
-      <div class="exp-group-body">${subRows}</div>
-    </div>`;
+    return '<div class="exp-group' + (isOpen ? ' open' : '') + '" id="grp-' + g.key + '">' +
+      '<div class="exp-group-header" onclick="toggleGroup(\'' + g.key + '\')">' +
+        '<div class="exp-group-left">' +
+          '<span class="group-dot" style="background:' + color + ';"></span>' +
+          '<span class="group-name">' + g.name + '</span>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;">' +
+          '<span class="group-total">' + (total > 0 ? fmt(total) : '\u2014') + '</span>' +
+          '<span class="group-chevron">&#9660;</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="exp-group-body">' + subRows + '</div>' +
+    '</div>';
   }).join('');
 }
-
 function toggleGroup(key) {
   if (openGroups.has(key)) { openGroups.delete(key); } else { openGroups.add(key); }
   const el = document.getElementById('grp-' + key);
@@ -584,18 +633,77 @@ function updateIncome(label, val) {
   updateSummary();
 }
 
-function updateExpense(groupKey, item, val) {
+function toggleEntryPanel(panelId) {
+  const el = document.getElementById(panelId);
+  if (!el) return;
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    setTimeout(() => document.getElementById(panelId + '-amt')?.focus(), 50);
+  }
+}
+
+function addEntry(groupKey, item, panelId) {
+  const amt = parseFloat(document.getElementById(panelId + '-amt')?.value) || 0;
+  const note = document.getElementById(panelId + '-note')?.value.trim() || '';
+  if (!amt) return;
   const exp = getMonthData().expenses;
   if (!exp[groupKey]) exp[groupKey] = {};
-  exp[groupKey][item] = parseFloat(val) || 0;
+  if (!exp[groupKey][item] || typeof exp[groupKey][item] === 'number') {
+    exp[groupKey][item] = { entries: [] };
+  }
+  exp[groupKey][item].entries.push({ amt, note });
   saveData();
+  // Clear inputs
+  const amtEl = document.getElementById(panelId + '-amt');
+  const noteEl = document.getElementById(panelId + '-note');
+  if (amtEl) { amtEl.value = ''; amtEl.focus(); }
+  if (noteEl) noteEl.value = '';
+  // Update UI without full re-render
+  refreshSubItem(groupKey, item, panelId);
   updateSummary();
+  renderChart();
+}
+
+function removeEntry(groupKey, item, entryIdx) {
+  const exp = getMonthData().expenses;
+  const sub = exp[groupKey]?.[item];
+  if (!sub || !sub.entries) return;
+  sub.entries.splice(entryIdx, 1);
+  saveData();
+  const panelId = `panel-${groupKey}-${item.replace(/[^a-z0-9]/gi,'_')}`;
+  refreshSubItem(groupKey, item, panelId);
+  updateSummary();
+  renderChart();
+}
+
+function refreshSubItem(groupKey, item, panelId) {
+  const total = getSubTotal(groupKey, item);
+  const entries = getSubEntries(groupKey, item);
+  // Update total display
+  const row = document.getElementById(panelId)?.closest('.sub-row');
+  if (row) {
+    const totalEl = row.querySelector('.sub-total-display');
+    if (totalEl) totalEl.textContent = total > 0 ? fmt(total) : '—';
+  }
+  // Update entries list
+  const listEl = document.getElementById(panelId + '-list');
+  if (listEl) {
+    const safeItem = item.replace(/'/g, "\'");
+    listEl.innerHTML = entries.map((e, ei) =>
+      `<div class="entry-line">
+        <span class="entry-amt">-${fmt(e.amt)}</span>
+        <span class="entry-note">${e.note || ''}</span>
+        <button class="entry-del" onclick="removeEntry('${groupKey}','${safeItem}',${ei})">&#215;</button>
+      </div>`
+    ).join('');
+  }
+  // Update group header total
   const grpEl = document.getElementById('grp-' + groupKey);
   if (grpEl) {
     const t = groupTotal(groupKey);
     grpEl.querySelector('.group-total').textContent = t > 0 ? fmt(t) : '\u2014';
   }
-  renderChart();
 }
 
 function renderChart() {
@@ -989,12 +1097,15 @@ function toggleSkip(ri) {
 function applyImport() {
   const rows = window._importRows || [];
   const exp = getMonthData().expenses;
-  rows.forEach(row => {
+  rows.forEach((row, ri) => {
     if (row.skip) return;
-    const grpKey = document.getElementById('mrow-' + rows.indexOf(row))?.querySelector('.mapping-select')?.value || row.grp;
-    const sub = document.getElementById('msub-' + rows.indexOf(row))?.value || row.sub;
+    const grpKey = document.getElementById('mrow-' + ri)?.querySelector('.mapping-select')?.value || row.grp;
+    const sub = document.getElementById('msub-' + ri)?.value || row.sub;
     if (!exp[grpKey]) exp[grpKey] = {};
-    exp[grpKey][sub] = (parseFloat(exp[grpKey][sub]) || 0) + row.amt;
+    if (!exp[grpKey][sub] || typeof exp[grpKey][sub] === 'number') {
+      exp[grpKey][sub] = { entries: [] };
+    }
+    exp[grpKey][sub].entries.push({ amt: row.amt, note: 'Revolut import' });
   });
   saveData();
   closeImport();
